@@ -1,32 +1,34 @@
-FROM php:8.2-fpm as backend
-
-# Install Node.js (for Vite build)
-RUN apt-get update && \
-	apt-get install -y curl gnupg && \
-	curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-	apt-get install -y nodejs && \
-	apt-get clean && rm -rf /var/lib/apt/lists/*
+FROM php:8.2-fpm
 
 WORKDIR /app
 
-COPY . .
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    unzip \
+    curl \
+    nodejs \
+    npm \
+    libzip-dev \
+    zip
 
 # Install PHP extensions
-RUN docker-php-ext-install pdo pdo_mysql
+RUN docker-php-ext-install pdo pdo_mysql zip
 
-# Build Vite frontend
-RUN cd /app && npm install && npm run build
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Install static server for frontend
-RUN npm install -g serve
+# Copy project files
+COPY . .
 
-# Install supervisord to run both services
-RUN apt-get update && apt-get install -y supervisor && \
-	apt-get clean && rm -rf /var/lib/apt/lists/*
+# Install PHP dependencies
+RUN composer install --no-dev --optimize-autoloader
 
-# Create supervisord config
-RUN echo "[supervisord]\nnodaemon=true\n\n[program:php-fpm]\ncommand=php-fpm\n\n[program:frontend]\ncommand=serve -s /app/public/build -l 3000\n" > /etc/supervisor/conf.d/supervisord.conf
+# Install Node dependencies and build Vite
+RUN npm install
+RUN npm run build
 
-EXPOSE 9000 3000
+# Expose port
+EXPOSE 8000
 
-CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD php artisan serve --host=0.0.0.0 --port=8000
